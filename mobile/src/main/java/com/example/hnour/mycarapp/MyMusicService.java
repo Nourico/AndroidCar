@@ -1,138 +1,136 @@
 package com.example.hnour.mycarapp;
 
+import android.app.Service;
+import android.content.Intent;
+import android.media.MediaMetadata;
+import android.media.MediaPlayer;
+import android.media.browse.MediaBrowser;
+import android.media.session.MediaSession;
+import android.media.session.PlaybackState;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.IBinder;
+import android.os.SystemClock;
+import android.service.media.MediaBrowserService;
 import android.support.annotation.NonNull;
-import android.support.v4.media.MediaBrowserCompat.MediaItem;
-import android.support.v4.media.MediaBrowserServiceCompat;
-import android.support.v4.media.session.MediaSessionCompat;
+import android.support.annotation.Nullable;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * This class provides a MediaBrowser through a service. It exposes the media library to a browsing
- * client, through the onGetRoot and onLoadChildren methods. It also creates a MediaSession and
- * exposes it through its MediaSession.Token, which allows the client to create a MediaController
- * that connects to and send control commands to the MediaSession remotely. This is useful for
- * user interfaces that need to interact with your media session, like Android Auto. You can
- * (should) also use the same service from your app's UI, which gives a seamless playback
- * experience to the user.
- * <p>
- * To implement a MediaBrowserService, you need to:
- * <p>
- * <ul>
- * <p>
- * <li> Extend {@link MediaBrowserServiceCompat}, implementing the media browsing
- * related methods {@link MediaBrowserServiceCompat#onGetRoot} and
- * {@link MediaBrowserServiceCompat#onLoadChildren};
- * <li> In onCreate, start a new {@link MediaSessionCompat} and notify its parent
- * with the session's token {@link MediaBrowserServiceCompat#setSessionToken};
- * <p>
- * <li> Set a callback on the {@link MediaSessionCompat#setCallback(MediaSessionCompat.Callback)}.
- * The callback will receive all the user's actions, like play, pause, etc;
- * <p>
- * <li> Handle all the actual music playing using any method your app prefers (for example,
- * {@link android.media.MediaPlayer})
- * <p>
- * <li> Update playbackState, "now playing" metadata and queue, using MediaSession proper methods
- * {@link MediaSessionCompat#setPlaybackState(android.support.v4.media.session.PlaybackStateCompat)}
- * {@link MediaSessionCompat#setMetadata(android.support.v4.media.MediaMetadataCompat)} and
- * {@link MediaSessionCompat#setQueue(java.util.List)})
- * <p>
- * <li> Declare and export the service in AndroidManifest with an intent receiver for the action
- * android.media.browse.MediaBrowserService
- * <p>
- * </ul>
- * <p>
- * To make your app compatible with Android Auto, you also need to:
- * <p>
- * <ul>
- * <p>
- * <li> Declare a meta-data tag in AndroidManifest.xml linking to a xml resource
- * with a &lt;automotiveApp&gt; root element. For a media app, this must include
- * an &lt;uses name="media"/&gt; element as a child.
- * For example, in AndroidManifest.xml:
- * &lt;meta-data android:name="com.google.android.gms.car.application"
- * android:resource="@xml/automotive_app_desc"/&gt;
- * And in res/values/automotive_app_desc.xml:
- * &lt;automotiveApp&gt;
- * &lt;uses name="media"/&gt;
- * &lt;/automotiveApp&gt;
- * <p>
- * </ul>
- */
-public class MyMusicService extends MediaBrowserServiceCompat {
 
-    private MediaSessionCompat mSession;
+public class MyMusicService extends MediaBrowserService {
+    private MediaSession mSession;
+    private List<MediaMetadata> mMusic;
+    private MediaPlayer mMediaPlayer;
+    private MediaMetadata mCurrentTrack;
 
     @Override
     public void onCreate() {
         super.onCreate();
 
-        mSession = new MediaSessionCompat(this, "MyMusicService");
+        // Create entries for two songs
+        mMusic = new ArrayList<MediaMetadata>();
+        mMusic.add(new MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_MEDIA_ID, "http://storage.googleapis.com/automotive-media/Jazz_In_Paris.mp3")
+                .putString(MediaMetadata.METADATA_KEY_TITLE, "Jazz in Paris")
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, "Media Right Productions")
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, 30000)
+                .build());
+
+        mMusic.add(new MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_MEDIA_ID, "http://storage.googleapis.com/automotive-media/The_Messenger.mp3")
+                .putString(MediaMetadata.METADATA_KEY_TITLE, "The Messenger")
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, "Silent Partner")
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, 30000)
+                .build());
+
+        mMediaPlayer = new MediaPlayer();
+
+        mSession = new MediaSession(this, "MyMusicService");
+        mSession.setCallback(new MediaSession.Callback() {
+            @Override
+            public void onPlayFromMediaId(String mediaId, Bundle extras) {
+                for (MediaMetadata item : mMusic) {
+                    if (item.getDescription().getMediaId().equals(mediaId)) {
+                        mCurrentTrack = item;
+                        break;
+                    }
+                }
+                handlePlay();
+            }
+
+            @Override
+            public void onPlay() {
+                if (mCurrentTrack == null) {
+                    mCurrentTrack = mMusic.get(0);
+                    handlePlay();
+                } else {
+                    mMediaPlayer.start();
+                    mSession.setPlaybackState(buildState(PlaybackState.STATE_PLAYING));
+                }
+            }
+
+            @Override
+            public void onPause() {
+                mMediaPlayer.pause();
+                mSession.setPlaybackState(buildState(PlaybackState.STATE_PAUSED));
+            }
+        });
+
+        mSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS | MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
+        mSession.setActive(true);
         setSessionToken(mSession.getSessionToken());
-        mSession.setCallback(new MediaSessionCallback());
-        mSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS |
-                MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+    }
+
+    private PlaybackState buildState(int state) {
+        return new PlaybackState.Builder().setActions(
+                PlaybackState.ACTION_PLAY | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                        | PlaybackState.ACTION_SKIP_TO_NEXT
+                        | PlaybackState.ACTION_PLAY_FROM_MEDIA_ID
+                        | PlaybackState.ACTION_PLAY_PAUSE)
+                .setState(state, mMediaPlayer.getCurrentPosition(), 1, SystemClock.elapsedRealtime())
+                .build();
+    }
+
+    private void handlePlay() {
+        mSession.setPlaybackState(buildState(PlaybackState.STATE_PLAYING));
+        mSession.setMetadata(mCurrentTrack);
+
+        try {
+            mMediaPlayer.reset();
+            mMediaPlayer.setDataSource(MyMusicService.this,
+                    Uri.parse(mCurrentTrack.getDescription().getMediaId()));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        mMediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+            @Override
+            public void onPrepared(MediaPlayer mediaPlayer) {
+                mediaPlayer.start();
+                mSession.setPlaybackState(buildState(PlaybackState.STATE_PLAYING));
+            }
+        });
+
+        mMediaPlayer.prepareAsync();
     }
 
     @Override
-    public void onDestroy() {
-        mSession.release();
+    public BrowserRoot onGetRoot(@NonNull String s, int i, @Nullable Bundle bundle) {
+        return new BrowserRoot("ROOT", null);
     }
 
     @Override
-    public BrowserRoot onGetRoot(@NonNull String clientPackageName,
-                                 int clientUid,
-                                 Bundle rootHints) {
-        return new BrowserRoot("root", null);
+    public void onLoadChildren(@NonNull String s, @NonNull Result<List<MediaBrowser.MediaItem>> result) {
+        List<MediaBrowser.MediaItem> list = new ArrayList<MediaBrowser.MediaItem>();
+        for (MediaMetadata m : mMusic) {
+            list.add(new MediaBrowser.MediaItem(m.getDescription(), MediaBrowser.MediaItem.FLAG_PLAYABLE));
+        }
+        result.sendResult(list);
     }
 
-    @Override
-    public void onLoadChildren(@NonNull final String parentMediaId,
-                               @NonNull final Result<List<MediaItem>> result) {
-        result.sendResult(new ArrayList<MediaItem>());
-    }
-
-    private final class MediaSessionCallback extends MediaSessionCompat.Callback {
-        @Override
-        public void onPlay() {
-        }
-
-        @Override
-        public void onSkipToQueueItem(long queueId) {
-        }
-
-        @Override
-        public void onSeekTo(long position) {
-        }
-
-        @Override
-        public void onPlayFromMediaId(String mediaId, Bundle extras) {
-        }
-
-        @Override
-        public void onPause() {
-        }
-
-        @Override
-        public void onStop() {
-        }
-
-        @Override
-        public void onSkipToNext() {
-        }
-
-        @Override
-        public void onSkipToPrevious() {
-        }
-
-        @Override
-        public void onCustomAction(String action, Bundle extras) {
-        }
-
-        @Override
-        public void onPlayFromSearch(final String query, final Bundle extras) {
-        }
+    public MyMusicService() {
     }
 }

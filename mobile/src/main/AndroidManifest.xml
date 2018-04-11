@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.hnour.mycarapp">
 
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <permission android:name="android.permission.MEDIA_CONTENT_CONTROL" />
+
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -21,7 +27,7 @@
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
         <!--
- Main music service, provides media browsing and media playback services to
+         Main music service, provides media browsing and media playback services to
          consumers through MediaBrowserService and MediaSession. Consumers connect to it through
          MediaBrowser (for browsing) and MediaController (for playback control)
         -->
@@ -32,6 +38,12 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+
+        <activity
+            android:name=".DisplayMessageActivity"
+            android:parentActivityName=".MainActivity" />
+
     </application>
 
 </manifest>
